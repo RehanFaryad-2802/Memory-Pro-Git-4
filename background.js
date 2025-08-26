@@ -57,7 +57,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
   
   // Screenshot handler
-  if (info.menuItemId === "captureVisibleTab") {
+   if (info.menuItemId === "captureVisibleTab") {
     chrome.tabs.captureVisibleTab({ format: "png" }, (dataUrl) => {
       if (!dataUrl) return;
       
@@ -70,9 +70,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         tags: ["Content"],
         type: "image",
         meta: {
-          imageData: dataUrl,
+          // Don't store imageData to avoid sync issues
+          // imageData: dataUrl, // REMOVED
           sourceUrl: tab.url,
-          favicon: `https://www.google.com/s2/favicons?domain=${new URL(tab.url).hostname}`
+          favicon: `https://www.google.com/s2/favicons?domain=${new URL(tab.url).hostname}`,
+          imageStored: false // Flag to indicate no image data
         },
         versions: []
       };

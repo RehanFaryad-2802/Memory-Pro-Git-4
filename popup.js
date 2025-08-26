@@ -39,6 +39,7 @@ const githubToken = $("#githubToken");
 const saveGithubSettings = $("#saveGithubSettings");
 const closeGithubModal = $("#closeGithubModal");
 const syncStatus = $("#syncStatus");
+const testGithubConnection = $("#testGithubConnection");
 
 /* state */
 let activeTag = null;
@@ -52,6 +53,7 @@ let githubConfig = {
   path: "memory.json",
   token: "",
 };
+
 function showImageSyncWarning(imageCount) {
   if (imageCount > 0) {
     const warning = document.createElement("div");
@@ -67,9 +69,9 @@ function showImageSyncWarning(imageCount) {
     `;
     warning.innerHTML = `
       <strong>⚠️ Images Not Synced:</strong> 
-      ${imageCount} image${imageCount > 1 ? 's' : ''} excluded from GitHub sync
+      ${imageCount} image${imageCount > 1 ? "s" : ""} excluded from GitHub sync
     `;
-    
+
     // Insert after the sync status
     const syncStatus = document.getElementById("syncStatus");
     if (syncStatus && !document.getElementById("imageSyncWarning")) {
@@ -82,6 +84,7 @@ function showImageSyncWarning(imageCount) {
     }
   }
 }
+
 async function getFileSHA() {
   try {
     const endpoint = `/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`;
@@ -98,17 +101,31 @@ async function getFileSHA() {
 }
 
 async function saveToGitHub(data) {
-  // Filter out image items before saving to GitHub
-  const dataWithoutImages = data.filter(item => item.type !== "image");
-  
-  // Validate data before saving
-  if (!Array.isArray(dataWithoutImages)) {
-    console.error("Attempted to save non-array data to GitHub");
-    dataWithoutImages = [];
-  }
+  // Filter out image data but keep image metadata
+  const dataWithoutImageData = data.map((item) => {
+    if (item.type === "image") {
+      // Create a copy without the actual image data
+      const { meta, ...rest } = item;
+      const { imageData, ...metaWithoutImageData } = meta || {};
+      return {
+        ...rest,
+        meta: {
+          ...metaWithoutImageData,
+          imageStored: false, // Flag to indicate image data was removed
+        },
+      };
+    }
+    return item;
+  });
 
-   const imageCount = data.filter(item => item.type === "image").length;
-   showImageSyncWarning(imageCount);
+  const imageCount = data.filter((item) => item.type === "image").length;
+  showImageSyncWarning(imageCount);
+
+  // Validate data before saving
+  if (!Array.isArray(dataWithoutImageData)) {
+    console.error("Attempted to save non-array data to GitHub");
+    dataWithoutImageData = [];
+  }
 
   // Validate GitHub configuration
   if (!githubConfig.owner || !githubConfig.repo || !githubConfig.token) {
@@ -118,7 +135,7 @@ async function saveToGitHub(data) {
 
   const sha = await getFileSHA();
   const content = btoa(
-    unescape(encodeURIComponent(JSON.stringify(dataWithoutImages, null, 2)))
+    unescape(encodeURIComponent(JSON.stringify(dataWithoutImageData, null, 2)))
   );
 
   const endpoint = `/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`;
@@ -163,6 +180,7 @@ async function loadFromGitHub() {
     throw error;
   }
 }
+
 async function verifyRepositoryAccess() {
   try {
     const endpoint = `/repos/${githubConfig.owner}/${githubConfig.repo}`;
@@ -233,14 +251,32 @@ function getMemory(cb) {
           const githubMemory = await loadFromGitHub();
           if (githubMemory.length > 0) {
             // Merge with local memory, prioritizing GitHub data
-            // But keep local image items that GitHub doesn't have
+            // But restore image data from local storage if available
             const merged = [
-              ...githubMemory,
+              ...githubMemory.map((githubItem) => {
+                // If this is an image item from GitHub without image data,
+                // try to find the local version with image data
+                if (
+                  githubItem.type === "image" &&
+                  githubItem.meta?.imageStored === false
+                ) {
+                  const localImageItem = res.memory.find(
+                    (localItem) =>
+                      localItem.id === githubItem.id &&
+                      localItem.type === "image"
+                  );
+                  // If we found a local version with image data, use it
+                  if (localImageItem && localImageItem.meta?.imageData) {
+                    return localImageItem;
+                  }
+                }
+                return githubItem;
+              }),
               ...res.memory.filter(
                 (localItem) =>
                   !githubMemory.some(
                     (githubItem) => githubItem.id === localItem.id
-                  ) || localItem.type === "image" // Always keep local images
+                  )
               ),
             ];
             chrome.storage.local.set({ memory: merged }, () => cb(merged));
@@ -255,6 +291,7 @@ function getMemory(cb) {
     }
   );
 }
+
 function setMemory(memory, cb) {
   updateSyncStatus("syncing");
   chrome.storage.local.set({ memory }, async () => {
@@ -297,6 +334,7 @@ function updateSyncStatus(status) {
       syncStatus.textContent = "● Local";
   }
 }
+
 function checkSyncStatus() {
   chrome.storage.local.get(["githubConfig", "lastSync"], (result) => {
     if (result.githubConfig && result.githubConfig.owner) {
@@ -325,9 +363,10 @@ document.addEventListener("DOMContentLoaded", () => {
   getMemory(() => {
     applySettings();
     loadMemory();
-    checkSyncStatus(); // Add this line
+    checkSyncStatus();
   });
 });
+
 // Add a button to open the GitHub file directly
 const viewOnGithubBtn = document.createElement("button");
 viewOnGithubBtn.innerHTML =
@@ -346,8 +385,6 @@ viewOnGithubBtn.addEventListener("click", () => {
 
 // Add to your small-controls section
 document.querySelector(".small-controls").appendChild(viewOnGithubBtn);
-
-// Replace your existing githubAPI, getFileSHA, saveToGitHub, and loadFromGitHub functions:
 
 async function githubAPI(endpoint, options = {}) {
   const url = `https://api.github.com${endpoint}`;
@@ -393,80 +430,6 @@ async function githubAPI(endpoint, options = {}) {
   return response.json();
 }
 
-async function getFileSHA() {
-  try {
-    const endpoint = `/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`;
-    const fileInfo = await githubAPI(endpoint);
-    return fileInfo.sha;
-  } catch (error) {
-    // If it's a 404, the file doesn't exist yet (which is fine)
-    if (error.message.includes("404")) {
-      return null;
-    }
-    // Re-throw other errors
-    throw error;
-  }
-}
-
-
-async function loadFromGitHub() {
-  try {
-    // Validate GitHub configuration
-    if (!githubConfig.owner || !githubConfig.repo || !githubConfig.token) {
-      console.log("GitHub not configured, skipping load");
-      return [];
-    }
-
-    const endpoint = `/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`;
-    const fileInfo = await githubAPI(endpoint);
-    const content = decodeURIComponent(escape(atob(fileInfo.content)));
-
-    // Handle empty or invalid JSON
-    if (!content.trim()) {
-      console.log("File is empty, returning empty array");
-      return [];
-    }
-
-    try {
-      return JSON.parse(content);
-    } catch (parseError) {
-      console.error("Invalid JSON in GitHub file:", parseError);
-      return [];
-    }
-  } catch (error) {
-    // If the file doesn't exist yet, return empty array
-    if (error.message.includes("404")) {
-      console.log("No existing file on GitHub, starting fresh");
-      return [];
-    }
-    console.error("Failed to load from GitHub:", error);
-    throw error;
-  }
-}
-
-async function verifyRepositoryAccess() {
-  try {
-    const endpoint = `/repos/${githubConfig.owner}/${githubConfig.repo}`;
-    const repoInfo = await githubAPI(endpoint);
-    console.log("Repository access verified:", repoInfo.full_name);
-    return true;
-  } catch (error) {
-    console.error("Repository access failed:", error);
-
-    if (error.message.includes("404")) {
-      throw new Error(
-        `Repository not found: ${githubConfig.owner}/${githubConfig.repo}. Please create it first.`
-      );
-    } else if (error.message.includes("403")) {
-      throw new Error(
-        'Permission denied. Please check your personal access token has "repo" permissions.'
-      );
-    }
-
-    throw error;
-  }
-}
-
 function saveSettingsToStorage() {
   chrome.storage.local.set({ settings }, () => applySettings());
 }
@@ -503,12 +466,14 @@ function detectType(text) {
     return { type: "code", meta: {} };
   return { type: "text", meta: {} };
 }
+
 const autoTagMap = {
   code: ["function", "console.log", "var ", "let ", "const ", "class", "=>"],
   link: ["http://", "https://", "www."],
   todo: ["todo", "fix", "task", "later", "remember"],
   idea: ["idea", "brainstorm", "concept", "plan"],
 };
+
 function autoTagForText(text) {
   const detected = new Set();
   const lower = text.trim().toLowerCase();
@@ -709,26 +674,42 @@ function renderItem(item) {
       body.appendChild(sourceDiv);
     }
   }
+
   if (item.type === "image") {
     // Image preview container
     const imgContainer = document.createElement("div");
     imgContainer.className = "image-container";
 
-    // Clickable thumbnail
-    const img = document.createElement("img");
-    img.src = item.meta.imageData;
-    img.className = "image-thumbnail";
-    img.addEventListener("click", () =>
-      showFullscreenImage(item.meta.imageData)
-    );
+    if (item.meta?.imageData) {
+      // Clickable thumbnail (if image data is available)
+      const img = document.createElement("img");
+      img.src = item.meta.imageData;
+      img.className = "image-thumbnail";
+      img.addEventListener("click", () =>
+        showFullscreenImage(item.meta.imageData)
+      );
+      imgContainer.appendChild(img);
+    } else {
+      // Show placeholder if no image data
+      const placeholder = document.createElement("div");
+      placeholder.className = "image-placeholder";
+      placeholder.innerHTML = "🖼️ Image (stored locally)";
+      placeholder.style.cssText = `
+        padding: 20px;
+        text-align: center;
+        background: rgba(255,255,255,0.05);
+        border-radius: 8px;
+        color: var(--muted);
+      `;
+      imgContainer.appendChild(placeholder);
+    }
 
     // Optional caption
     const caption = document.createElement("p");
     caption.className = "image-caption";
     caption.textContent = item.text || "Screenshot";
-
-    imgContainer.appendChild(img);
     imgContainer.appendChild(caption);
+
     body.appendChild(imgContainer);
   }
 
@@ -1067,8 +1048,9 @@ function saveScreenshot(dataUrl, captureType) {
     tags: ["Content"],
     type: "image",
     meta: {
-      imageData: dataUrl,
+      // imageData: dataUrl,
       sourceUrl: window.location.href,
+      imageStored: false,
     },
     versions: [],
   };
@@ -1147,7 +1129,7 @@ saveGithubSettings.addEventListener("click", () => {
 const syncBtn = document.createElement("button");
 syncBtn.title = "Sync with GitHub";
 syncBtn.innerHTML =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-sync-icon lucide-folder-sync"><path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"/><path d="M12 10v4h4"/><path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5"/><path d="M22 22v-4h-4"/><path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5"/></svg>';
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-sync-icon lucide-folder-sync"><path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v4h4"/><path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5"/><path d="M22 22v-4h-4"/><path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5"/></svg>';
 syncBtn.id = "syncBtn";
 // Replace your sync button event handler:
 syncBtn.addEventListener("click", async () => {
