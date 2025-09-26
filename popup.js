@@ -846,16 +846,114 @@ addBtn.addEventListener("click", () => {
   });
 });
 
-/* delete single */
+let undoQueue = [];
+let isShowingUndo = false;
+
+/* delete single with queued undo */
 function deleteItem(id) {
-  if (!confirm("Delete this item?")) return;
   getMemory((list) => {
-    setMemory(
-      list.filter((i) => i.id !== id),
-      () => loadMemory()
-    );
+    const itemToDelete = list.find(i => i.id === id);
+    const updatedList = list.filter((i) => i.id !== id);
+    
+    setMemory(updatedList, () => {
+      loadMemory();
+      
+      // Add to queue instead of showing immediately
+      undoQueue.push({ item: itemToDelete, id: id });
+      
+      // Show next undo bar if not already showing one
+      if (!isShowingUndo) {
+        showNextUndoBar();
+      }
+    });
   });
 }
+
+/* show next undo bar from queue */
+function showNextUndoBar() {
+  if (undoQueue.length === 0 || isShowingUndo) return;
+  
+  isShowingUndo = true;
+  const { item, id } = undoQueue.shift();
+  
+  const undoBar = document.createElement('div');
+  undoBar.className = 'undo-bar';
+  undoBar.dataset.id = id;
+  
+  // Show item title instead of "Item deleted"
+  const itemTitle = item.text.length > 30 ? item.text.substring(0, 30) + '...' : item.text;
+  
+  undoBar.innerHTML = `
+    <span>Deleted: "${itemTitle}"</span>
+    <button class="undo-btn">Undo</button>
+    <button class="close-btn">×</button>
+    <div class="border-timer"></div>
+  `;
+  
+  const borderTimer = undoBar.querySelector('.border-timer');
+  
+  // Start border animation (7 seconds)
+  setTimeout(() => {
+    borderTimer.style.transition = 'width 5s linear';
+    borderTimer.style.width = '100%';
+  }, 10);
+  
+  // Undo button click
+  undoBar.querySelector('.undo-btn').addEventListener('click', () => {
+    getMemory((list) => {
+      setMemory([item, ...list], () => {
+        loadMemory();
+        undoBar.remove();
+        isShowingUndo = false;
+        showNextUndoBar(); // Show next in queue
+      });
+    });
+  });
+  
+  // Close button click
+  undoBar.querySelector('.close-btn').addEventListener('click', () => {
+    undoBar.remove();
+    isShowingUndo = false;
+    showNextUndoBar(); // Show next in queue
+  });
+  
+  // Auto-remove after 7 seconds
+  setTimeout(() => {
+    if (undoBar.parentNode) {
+      undoBar.remove();
+      isShowingUndo = false;
+      showNextUndoBar(); // Show next in queue
+    }
+  }, 5000);
+  
+  document.body.appendChild(undoBar);
+}
+
+/* clear all with queued undo */
+function clearAllWithUndo() {
+  getMemory((list) => {
+    if (list.length === 0) return;
+    
+    // Store all items for potential undo
+    const allItems = [...list];
+    
+    setMemory([], () => {
+      loadMemory();
+      
+      // Add bulk undo to queue
+      undoQueue.push({ 
+        items: allItems, 
+        isBulk: true,
+        count: allItems.length 
+      });
+      
+      if (!isShowingUndo) {
+        showNextUndoBar();
+      }
+    });
+  });
+}
+
 
 /* toggle pin */
 function togglePin(id) {
@@ -1113,9 +1211,28 @@ importFile.addEventListener("change", (e) => {
   importFile.value = "";
 });
 
-/* clear all */
+/* replace the existing clearAllBtn event listener */
+/* replace the existing clearAllBtn event listener */
 clearAllBtn.addEventListener("click", () => {
-  if (confirm("Delete all saved items?")) setMemory([], () => loadMemory());
+  // Show gentle confirmation instead of alert
+  if (clearAllBtn.classList.contains('confirm-mode')) {
+    clearAllWithUndo();
+    clearAllBtn.classList.remove('confirm-mode');
+    clearAllBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+    clearAllBtn.style.background = '';
+  } else {
+    // First click - show confirmation
+    clearAllBtn.classList.add('confirm-mode');
+    clearAllBtn.innerHTML = '❓ Clear All?';
+    clearAllBtn.style.background = '#ff6b6b';
+    
+    // Reset after 3 seconds
+    setTimeout(() => {
+      clearAllBtn.classList.remove('confirm-mode');
+      clearAllBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+      clearAllBtn.style.background = '';
+    }, 3000);
+  }
 });
 
 /* search/filter events */
@@ -1260,3 +1377,6 @@ testGithubConnection.addEventListener("click", async () => {
     githubConfig = originalConfig;
   }
 });
+
+
+
