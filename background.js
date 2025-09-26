@@ -4,26 +4,26 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "saveToMemory",
     title: "Save to Memory",
-    contexts: ["selection"]
+    contexts: ["selection"],
   });
-  
+
   // Add tag submenu (unchanged)
   const tags = ["Info", "Reference", "Content", "Series", "Code", "URL"];
-  tags.forEach(tag => {
+  tags.forEach((tag) => {
     chrome.contextMenus.create({
       id: `saveWithTag_${tag}`,
       title: tag,
       parentId: "saveToMemory",
-      contexts: ["selection"]
+      contexts: ["selection"],
     });
   });
-  
+
   // NEW: Add screenshot context menu
   chrome.contextMenus.create({
     id: "captureVisibleTab",
     title: "📸 Capture Visible Tab",
     contexts: ["all"], // Available on any page
-    documentUrlPatterns: ["http://*/*", "https://*/*"] // Only on web pages
+    documentUrlPatterns: ["http://*/*", "https://*/*"], // Only on web pages
   });
 });
 
@@ -33,7 +33,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId.startsWith("saveWithTag_") && info.selectionText) {
     const tag = info.menuItemId.replace("saveWithTag_", "");
     const detected = detectType(info.selectionText);
-    
+
     const newItem = {
       id: Date.now().toString() + Math.floor(Math.random() * 1000),
       text: info.selectionText,
@@ -44,41 +44,44 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       type: detected.type,
       meta: {
         ...(detected.meta || {}),
-        sourceUrl: tab.url
+        sourceUrl: tab.url,
       },
-      versions: []
+      versions: [],
     };
-    
+
     chrome.storage.local.get({ memory: [] }, (res) => {
       const updated = [newItem, ...res.memory];
       chrome.storage.local.set({ memory: updated });
     });
     return;
   }
-  
-  // Screenshot handler
-   if (info.menuItemId === "captureVisibleTab") {
+
+  // Screenshot handler - modified to work without messaging
+  if (info.menuItemId === "captureVisibleTab") {
     chrome.tabs.captureVisibleTab({ format: "png" }, (dataUrl) => {
       if (!dataUrl) return;
-      
+
+      const url = new URL(tab.url);
+      let hostname = url.hostname.replace("www.", "");
+      let siteName = hostname.split(".")[0];
       const newItem = {
         id: Date.now().toString() + Math.floor(Math.random() * 1000),
-        text: `Screenshot from ${tab.title || tab.url}`,
+        text: `${tab.title || tab.url}`,
         created: new Date().toISOString(),
         color: randomColor(),
         pinned: false,
-        tags: ["Content"],
+        tags: [siteName.charAt(0).toUpperCase() + siteName.slice(1)],
         type: "image",
         meta: {
-          // Don't store imageData to avoid sync issues
-          // imageData: dataUrl, // REMOVED
+          imageData: dataUrl,
           sourceUrl: tab.url,
-          favicon: `https://www.google.com/s2/favicons?domain=${new URL(tab.url).hostname}`,
-          imageStored: false // Flag to indicate no image data
+          favicon: `https://www.google.com/s2/favicons?domain=${url.hostname}`,
+          imageStored: true,
         },
-        versions: []
+        versions: [],
       };
-      
+
+      // Save directly to storage
       chrome.storage.local.get({ memory: [] }, (res) => {
         chrome.storage.local.set({ memory: [newItem, ...res.memory] });
       });
@@ -102,11 +105,33 @@ function detectType(text) {
       const url = new URL(trimmed);
       return {
         type: "url",
-        meta: { title: trimmed, favicon: `https://www.google.com/s2/favicons?domain=${url.hostname}` }
+        meta: {
+          title: trimmed,
+          favicon: `https://www.google.com/s2/favicons?domain=${url.hostname}`,
+        },
       };
-    } catch(e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }
-  const codeKeywords = ["function","const","let","var","=>","console.log","{","}",";","class"];
-  if (codeKeywords.some(k => trimmed.includes(k))) return { type: "code", meta: {} };
+  const codeKeywords = [
+    "function",
+    "const",
+    "let",
+    "var",
+    "=>",
+    "console.log",
+    "{",
+    "}",
+    ";",
+    "class",
+  ];
+  if (codeKeywords.some((k) => trimmed.includes(k)))
+    return { type: "code", meta: {} };
   return { type: "text", meta: {} };
 }
+chrome.action.onClicked.addListener((tab) => {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL("popup.html"),
+  });
+});

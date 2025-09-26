@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Memory Pro",
-  "version": "4.1.1",
+  "version": "5.3.4",
   "description": "Local note/snippet manager with tags, pinning, search, auto-tagging, organize and theme.",
   "permissions": ["contextMenus", "storage", "activeTab", "tabs", "downloads"],
   "background": { "service_worker": "background.js" },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "Memory Manager",
     "default_icon": {
       "16": "icon.png",

@@ -26,9 +26,6 @@ const saveSettings = $("#saveSettings");
 const themeSelect = $("#themeSelect");
 const accentColor = $("#accentColor");
 const fontSizeInput = $("#fontSize");
-const captureVisible = $("#captureVisible");
-const captureFullPage = $("#captureFullPage");
-const screenshotFile = $("#screenshotFile");
 
 const githubSettingsBtn = $("#githubSettingsBtn");
 const githubModal = $("#githubModal");
@@ -53,37 +50,6 @@ let githubConfig = {
   path: "memory.json",
   token: "",
 };
-
-function showImageSyncWarning(imageCount) {
-  if (imageCount > 0) {
-    const warning = document.createElement("div");
-    warning.id = "imageSyncWarning";
-    warning.style.cssText = `
-      background: rgba(255, 100, 100, 0.15);
-      padding: 8px 12px;
-      border-radius: 6px;
-      margin: 10px 0;
-      border-left: 3px solid #ff6b6b;
-      font-size: 12px;
-      color: #ff6b6b;
-    `;
-    warning.innerHTML = `
-      <strong>⚠️ Images Not Synced:</strong> 
-      ${imageCount} image${imageCount > 1 ? "s" : ""} excluded from GitHub sync
-    `;
-
-    // Insert after the sync status
-    const syncStatus = document.getElementById("syncStatus");
-    if (syncStatus && !document.getElementById("imageSyncWarning")) {
-      syncStatus.parentNode.insertBefore(warning, syncStatus.nextSibling);
-    }
-  } else {
-    const existingWarning = document.getElementById("imageSyncWarning");
-    if (existingWarning) {
-      existingWarning.remove();
-    }
-  }
-}
 
 async function getFileSHA() {
   try {
@@ -117,9 +83,6 @@ async function saveToGitHub(data) {
     }
     return item;
   });
-
-  const imageCount = data.filter((item) => item.type === "image").length;
-  showImageSyncWarning(imageCount);
 
   // Validate data before saving
   if (!Array.isArray(dataWithoutImageData)) {
@@ -319,19 +282,19 @@ function updateSyncStatus(status) {
   syncStatus.className = "";
   switch (status) {
     case "syncing":
-      syncStatus.textContent = "⏳ Syncing...";
+      syncStatus.textContent = "⏳ Saving to cloud...";
       syncStatus.classList.add("syncing");
       break;
     case "synced":
-      syncStatus.textContent = "✅ Synced";
+      syncStatus.textContent = "✅ Saved to cloud";
       syncStatus.classList.add("synced");
       break;
     case "error":
-      syncStatus.textContent = "❌ Error";
+      syncStatus.textContent = "❌ Couldn't save";
       syncStatus.classList.add("error");
       break;
     default:
-      syncStatus.textContent = "● Local";
+      syncStatus.textContent = "● Only on this computer";
   }
 }
 
@@ -344,14 +307,14 @@ function checkSyncStatus() {
         const diffHours = (now - lastSync) / (1000 * 60 * 60);
 
         if (diffHours < 1) {
-          syncStatus.textContent = "✅ Synced";
+          syncStatus.textContent = "✅ Saved to cloud";
           syncStatus.classList.add("synced");
         } else {
-          syncStatus.textContent = "⚠️ Stale";
+          syncStatus.textContent = "⚠️ Not saved yet";
           syncStatus.classList.add("syncing");
         }
       } else {
-        syncStatus.textContent = "⚠️ Never Synced";
+        syncStatus.textContent = "⚠️ Never saved to cloud";
         syncStatus.classList.add("syncing");
       }
     }
@@ -466,13 +429,6 @@ function detectType(text) {
     return { type: "code", meta: {} };
   return { type: "text", meta: {} };
 }
-
-const autoTagMap = {
-  code: ["function", "console.log", "var ", "let ", "const ", "class", "=>"],
-  link: ["http://", "https://", "www."],
-  todo: ["todo", "fix", "task", "later", "remember"],
-  idea: ["idea", "brainstorm", "concept", "plan"],
-};
 
 function autoTagForText(text) {
   const detected = new Set();
@@ -655,22 +611,107 @@ function renderItem(item) {
     code.innerHTML = window.SimpleHighlighter.highlight(item.text);
     pre.appendChild(code);
     body.appendChild(pre);
+  } else if (item.type === "mixed") {
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "mixed-content";
+
+    // Render the text content
+    const p = document.createElement("p");
+    p.className = "item-text";
+    p.textContent = item.text;
+    contentDiv.appendChild(p);
+
+    // Render any merged images
+    if (item.meta?.mergedImages) {
+      const imagesContainer = document.createElement("div");
+      imagesContainer.className = "attachments-grid";
+
+      item.meta.mergedImages.forEach((img, index) => {
+        if (img.imageData) {
+          const imgContainer = document.createElement("div");
+          imgContainer.className = "attachment-item";
+
+          const imgEl = document.createElement("img");
+          imgEl.src = img.imageData;
+          imgEl.className = "attachment-thumbnail";
+          imgEl.addEventListener("click", () =>
+            showFullscreenImage(img.imageData)
+          );
+
+          const caption = document.createElement("div");
+          caption.className = "attachment-caption";
+          caption.textContent = img.caption || `Image ${index + 1}`;
+
+          imgContainer.appendChild(imgEl);
+          imgContainer.appendChild(caption);
+          imagesContainer.appendChild(imgContainer);
+        }
+      });
+
+      contentDiv.appendChild(imagesContainer);
+    }
+
+    // In the renderItem function, update the sources rendering section:
+    if (item.meta?.sourceUrls && item.meta.sourceUrls.length > 0) {
+      const sourcesDiv = document.createElement("div");
+      sourcesDiv.className = "merged-sources";
+      sourcesDiv.innerHTML = `<strong>Sources:</strong>`;
+
+      const sourcesList = document.createElement("ul");
+      item.meta.sourceUrls.forEach((source) => {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+
+        // Handle both string URLs (old format) and object URLs (new format)
+        if (typeof source === "object" && source.url) {
+          a.href = source.url;
+          a.target = "_blank";
+          a.textContent = source.title || new URL(source.url).hostname;
+        } else if (typeof source === "string") {
+          a.href = source;
+          a.target = "_blank";
+          a.textContent = new URL(source).hostname;
+        } else {
+          // Skip invalid entries
+          return;
+        }
+
+        li.appendChild(a);
+        sourcesList.appendChild(li);
+      });
+
+      // Only add the sources section if we have valid URLs
+      if (sourcesList.children.length > 0) {
+        sourcesDiv.appendChild(sourcesList);
+        contentDiv.appendChild(sourcesDiv);
+      }
+    }
+
+    body.appendChild(contentDiv);
   } else {
     const p = document.createElement("p");
     p.className = "item-text";
     p.textContent = item.text;
     body.appendChild(p);
 
-    // Add source URL if available
+    // Add source URL if available (for single items, not merged)
     if (item.meta?.sourceUrl) {
       const sourceDiv = document.createElement("div");
       sourceDiv.className = "source-indicator";
+
+      // Handle both string and object formats for sourceUrl
+      let sourceUrl = item.meta.sourceUrl;
+      let sourceTitle = new URL(sourceUrl).hostname;
+
+      if (typeof sourceUrl === "object" && sourceUrl.url) {
+        sourceTitle = sourceUrl.title || new URL(sourceUrl.url).hostname;
+        sourceUrl = sourceUrl.url;
+      }
+
       sourceDiv.innerHTML = `
-      <span>Saved from:</span>
-      <a href="${item.meta.sourceUrl}" target="_blank">${
-        new URL(item.meta.sourceUrl).hostname
-      }</a>
-    `;
+    <span>Saved from:</span>
+    <a href="${sourceUrl}" target="_blank">${sourceTitle}</a>
+  `;
       body.appendChild(sourceDiv);
     }
   }
@@ -940,30 +981,101 @@ mergeBtn.addEventListener("click", () => {
     alert("Select at least 2 items to merge");
     return;
   }
-  if (!confirm("Merge selected items into one note? Images will be removed."))
-    return;
+  if (!confirm("Merge selected items into one note?")) return;
+
   getMemory((list) => {
     const items = ids
       .map((id) => list.find((i) => i.id === id))
       .filter(Boolean);
-    const mergedText = items.map((i) => i.text).join("\n\n---\n\n");
+
+    // Extract all text content
+    let mergedText = "";
+    let allImages = [];
+    let allSourceUrls = []; // Changed from Set to Array to preserve duplicates
+
+    items.forEach((item) => {
+      // Handle already merged items
+      if (item.type === "mixed" && item.meta?.mergedImages) {
+        // Add text from previous merge
+        mergedText += item.text + "\n--\n";
+
+        // Add images from previous merge
+        allImages = [...allImages, ...item.meta.mergedImages];
+
+        // Add source URLs from previous merge - handle both formats
+        if (item.meta.sourceUrls) {
+          item.meta.sourceUrls.forEach((source) => {
+            if (typeof source === "object" && source.url) {
+              allSourceUrls.push(source);
+            } else if (typeof source === "string") {
+              allSourceUrls.push({
+                url: source,
+                title: new URL(source).hostname,
+              });
+            }
+          });
+        }
+      }
+      // Handle individual image items
+      else if (item.type === "image") {
+        const imageRef = `[Image: ${item.text || "Screenshot"}]`;
+        mergedText += imageRef + "\n";
+
+        allImages.push({
+          imageData: item.meta?.imageData,
+          caption: item.text || "Screenshot",
+          sourceUrl: item.meta?.sourceUrl,
+        });
+
+        if (item.meta?.sourceUrl) {
+          allSourceUrls.push({
+            url: item.meta.sourceUrl,
+            title: item.text || "Screenshot",
+          });
+        }
+      }
+      // Handle regular text items
+      else {
+        mergedText += item.text + "\n";
+        if (item.meta?.sourceUrl) {
+          allSourceUrls.push({
+            url: item.meta.sourceUrl,
+            title: item.meta.title || new URL(item.meta.sourceUrl).hostname,
+          });
+        }
+      }
+    });
+
     const mergedTags = Array.from(new Set(items.flatMap((i) => i.tags || [])));
+    const hasImages = allImages.length > 0;
+
     const merged = {
       id: uid(),
-      text: mergedText,
+      text: mergedText.trim(),
       created: new Date().toISOString(),
       color: randomColor(),
-      pinned: false,
+      pinned: items.some((i) => i.pinned), // Keep pinned if any source was pinned
       tags: mergedTags.length ? mergedTags : ["untitled"],
-      type: "text",
-      meta: {},
-      versions: [],
+      type: hasImages ? "mixed" : "text",
+      meta: {
+        ...(hasImages && {
+          mergedImages: allImages,
+          // Store all source URLs at the end
+          sourceUrls: allSourceUrls.filter(Boolean),
+        }),
+        versions: [],
+      },
     };
+
+    // If no images, still preserve source URLs
+    if (!hasImages && allSourceUrls.length > 0) {
+      merged.meta.sourceUrls = allSourceUrls.filter(Boolean);
+    }
+
     const remaining = list.filter((i) => !ids.includes(i.id));
     setMemory([merged, ...remaining], () => loadMemory());
   });
 });
-
 /* export all */
 exportBtn.addEventListener("click", () => {
   getMemory((list) => {
@@ -1037,40 +1149,6 @@ document.getElementById("openInTabBtn").addEventListener("click", () => {
   });
 });
 
-// Save function
-function saveScreenshot(dataUrl, captureType) {
-  const newItem = {
-    id: uid(),
-    text: `Screenshot (${captureType}) ${new Date().toLocaleString()}`,
-    created: new Date().toISOString(),
-    color: randomColor(),
-    pinned: false,
-    tags: ["Content"],
-    type: "image",
-    meta: {
-      // imageData: dataUrl,
-      sourceUrl: window.location.href,
-      imageStored: false,
-    },
-    versions: [],
-  };
-
-  getMemory((list) => {
-    setMemory([newItem, ...list], () => {
-      loadMemory();
-      screenshotFile.value = ""; // Reset file input
-    });
-  });
-}
-
-// Fullscreen view
-function showFullscreenImage(src) {
-  const modal = document.createElement("div");
-  modal.id = "imageModal";
-  modal.innerHTML = `<img src="${src}">`;
-  modal.onclick = () => modal.remove();
-  document.body.appendChild(modal);
-}
 function showFullscreenImage(imageSrc) {
   const viewer = document.createElement("div");
   viewer.id = "image-viewer";
