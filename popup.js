@@ -1,4 +1,3 @@
-// DOM helpers
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
@@ -40,8 +39,8 @@ const testGithubConnection = $("#testGithubConnection");
 
 /* state */
 let activeTag = null;
-let listView = true; // list by default
-let groupBy = null; // 'tag' | 'date' | null
+let listView = true;
+let groupBy = null;
 let settings = { theme: "gradient", accent: "#2ea6ff", fontSize: 13 };
 
 let githubConfig = {
@@ -57,40 +56,35 @@ async function getFileSHA() {
     const fileInfo = await githubAPI(endpoint);
     return fileInfo.sha;
   } catch (error) {
-    // If it's a 404, the file doesn't exist yet (which is fine)
     if (error.message.includes("404")) {
       return null;
     }
-    // Re-throw other errors
+
     throw error;
   }
 }
 
 async function saveToGitHub(data) {
-  // Filter out image data but keep image metadata
   const dataWithoutImageData = data.map((item) => {
     if (item.type === "image") {
-      // Create a copy without the actual image data
       const { meta, ...rest } = item;
       const { imageData, ...metaWithoutImageData } = meta || {};
       return {
         ...rest,
         meta: {
           ...metaWithoutImageData,
-          imageStored: false, // Flag to indicate image data was removed
+          imageStored: false,
         },
       };
     }
     return item;
   });
 
-  // Validate data before saving
   if (!Array.isArray(dataWithoutImageData)) {
     console.error("Attempted to save non-array data to GitHub");
     dataWithoutImageData = [];
   }
 
-  // Validate GitHub configuration
   if (!githubConfig.owner || !githubConfig.repo || !githubConfig.token) {
     console.error("GitHub not configured properly");
     throw new Error("GitHub configuration incomplete");
@@ -120,7 +114,6 @@ async function loadFromGitHub() {
     const fileInfo = await githubAPI(endpoint);
     const content = decodeURIComponent(escape(atob(fileInfo.content)));
 
-    // Handle empty or invalid JSON
     if (!content.trim()) {
       console.log("File is empty, returning empty array");
       return [];
@@ -130,11 +123,10 @@ async function loadFromGitHub() {
       return JSON.parse(content);
     } catch (parseError) {
       console.error("Invalid JSON in GitHub file:", parseError);
-      // If JSON is invalid, return empty array and optionally fix the file
+
       return [];
     }
   } catch (error) {
-    // If the file doesn't exist yet, return empty array
     if (error.message.includes("404")) {
       console.log("No existing file on GitHub, starting fresh");
       return [];
@@ -186,6 +178,10 @@ function applySettings() {
     "--font-size",
     settings.fontSize + "px"
   );
+
+  listView = settings.listView !== false;
+  updateLayoutView();
+
   if (settings.theme === "light") {
     document.body.style.background = "linear-gradient(135deg,#f4f7fb,#e9eef7)";
     document.body.style.color = "#111";
@@ -198,7 +194,17 @@ function applySettings() {
     document.body.style.color = "#e6eef6";
   }
 }
-
+function updateLayoutView() {
+  if (listView) {
+    listContainer.classList.remove("grid-view");
+    listContainer.classList.add("list-view");
+    viewToggle.textContent = "▦";
+  } else {
+    listContainer.classList.remove("list-view");
+    listContainer.classList.add("grid-view");
+    viewToggle.textContent = "≡";
+  }
+}
 /* storage helpers */
 function getMemory(cb) {
   chrome.storage.local.get(
@@ -207,18 +213,14 @@ function getMemory(cb) {
       if (res.settings) settings = Object.assign(settings, res.settings);
       if (res.githubConfig)
         githubConfig = Object.assign(githubConfig, res.githubConfig);
+      listView = settings.listView !== false;
 
-      // Try to load from GitHub if configured
       if (githubConfig.owner && githubConfig.repo && githubConfig.token) {
         try {
           const githubMemory = await loadFromGitHub();
           if (githubMemory.length > 0) {
-            // Merge with local memory, prioritizing GitHub data
-            // But restore image data from local storage if available
             const merged = [
               ...githubMemory.map((githubItem) => {
-                // If this is an image item from GitHub without image data,
-                // try to find the local version with image data
                 if (
                   githubItem.type === "image" &&
                   githubItem.meta?.imageStored === false
@@ -228,7 +230,7 @@ function getMemory(cb) {
                       localItem.id === githubItem.id &&
                       localItem.type === "image"
                   );
-                  // If we found a local version with image data, use it
+
                   if (localImageItem && localImageItem.meta?.imageData) {
                     return localImageItem;
                   }
@@ -258,14 +260,12 @@ function getMemory(cb) {
 function setMemory(memory, cb) {
   updateSyncStatus("syncing");
   chrome.storage.local.set({ memory }, async () => {
-    // Sync to GitHub if configured (excluding images)
     if (githubConfig.owner && githubConfig.repo && githubConfig.token) {
       try {
         await saveToGitHub(memory);
         console.log("Successfully synced to GitHub (images excluded)");
         updateSyncStatus("synced");
 
-        // Update last sync time
         chrome.storage.local.set({ lastSync: new Date().toISOString() });
       } catch (error) {
         console.error("Failed to sync to GitHub:", error);
@@ -321,7 +321,6 @@ function checkSyncStatus() {
   });
 }
 
-// Call this on DOMContentLoaded
 document.addEventListener("DOMContentLoaded", () => {
   getMemory(() => {
     applySettings();
@@ -330,7 +329,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// Add a button to open the GitHub file directly
 const viewOnGithubBtn = document.createElement("button");
 viewOnGithubBtn.innerHTML =
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-git-icon lucide-folder-git"><circle cx="12" cy="13" r="2"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M14 13h3"/><path d="M7 13h3"/></svg>';
@@ -346,14 +344,12 @@ viewOnGithubBtn.addEventListener("click", () => {
   }
 });
 
-// Add to your small-controls section
 document.querySelector(".small-controls").appendChild(viewOnGithubBtn);
 
 async function githubAPI(endpoint, options = {}) {
   const url = `https://api.github.com${endpoint}`;
   console.log("GitHub API Request:", url, options.method || "GET");
 
-  // Validate token exists
   if (!githubConfig.token) {
     throw new Error("GitHub token not configured");
   }
@@ -374,7 +370,6 @@ async function githubAPI(endpoint, options = {}) {
     const errorText = await response.text();
     console.error("GitHub API Error Details:", errorText);
 
-    // More specific error messages
     if (response.status === 403) {
       throw new Error(
         'GitHub API: Permission denied. Check your token has "repo" permissions.'
@@ -413,46 +408,11 @@ function detectType(text) {
       };
     } catch (e) {}
   }
-  const codeKeywords = [
-    "function",
-    "const",
-    "let",
-    "var",
-    "=>",
-    "console.log",
-    "class",
-    "{",
-    "}",
-    ";",
-  ];
-  if (codeKeywords.some((k) => t.includes(k)))
-    return { type: "code", meta: {} };
   return { type: "text", meta: {} };
 }
 
 function autoTagForText(text) {
-  const detected = new Set();
-  const lower = text.trim().toLowerCase();
-
-  // URL Detection (matches your existing logic)
-  if (/^(https?:\/\/|www\.)/.test(lower)) {
-    detected.add("URL");
-  }
-
-  // Code Detection - Broad language support
-  if (
-    /(function|const|var|import |<[a-z]|\.\w+\s*\{|def |#include)/.test(lower)
-  ) {
-    detected.add("Code");
-  }
-
-  // Smart content categorization
-  if (/(note:|tip:|info:|\[info\])/.test(lower)) detected.add("Info");
-  if (/(tutorial|docs?|manual|reference)/.test(lower))
-    detected.add("Reference");
-  if (/(part \d|episode|season|chapter)/.test(lower)) detected.add("Series");
-
-  return Array.from(detected);
+  return []; // Always return empty array - no auto-tagging
 }
 
 /* rendering */
@@ -495,11 +455,10 @@ function renderList(items) {
     return;
   }
 
-  // grouping if needed
   if (groupBy === "tag") {
     const groups = {};
     items.forEach((it) =>
-      (it.tags || ["untitled"]).forEach((t) => {
+      (it.tags || ["Z-NTA"]).forEach((t) => {
         groups[t] = groups[t] || [];
         groups[t].push(it);
       })
@@ -519,7 +478,6 @@ function renderList(items) {
     return;
   }
 
-  // no grouping
   items.forEach((it) => memoryListEl.appendChild(renderItem(it)));
 }
 
@@ -529,14 +487,12 @@ function renderItem(item) {
   li.dataset.id = item.id;
   li.dataset.type = item.type || "text";
 
-  // toolbar
   const toolbar = document.createElement("div");
   toolbar.className = "item-toolbar";
   const left = document.createElement("div");
   left.className = "toolbar-left";
   const right = document.createElement("div");
   right.className = "item-actions";
-
   const pill = document.createElement("div");
   pill.className = "color-pill";
   pill.style.background = item.color || randomColor();
@@ -547,7 +503,6 @@ function renderItem(item) {
   meta.textContent = formatDate(item.created);
   left.appendChild(meta);
 
-  // actions
   const selChk = document.createElement("input");
   selChk.type = "checkbox";
   selChk.className = "select-item";
@@ -575,13 +530,12 @@ function renderItem(item) {
     const sourceBtn = actionBtn("🌐", "Open Source", () =>
       chrome.tabs.create({ url: item.meta.sourceUrl })
     );
-    right.insertBefore(sourceBtn, right.children[1]); // Insert after first child
+    right.insertBefore(sourceBtn, right.children[1]);
   }
 
   toolbar.appendChild(left);
   toolbar.appendChild(right);
 
-  // body
   const body = document.createElement("div");
   if (item.type === "url") {
     const wrap = document.createElement("div");
@@ -610,18 +564,17 @@ function renderItem(item) {
     const code = document.createElement("code");
     code.innerHTML = window.SimpleHighlighter.highlight(item.text);
     pre.appendChild(code);
+
     body.appendChild(pre);
   } else if (item.type === "mixed") {
     const contentDiv = document.createElement("div");
     contentDiv.className = "mixed-content";
 
-    // Render the text content
     const p = document.createElement("p");
     p.className = "item-text";
     p.textContent = item.text;
     contentDiv.appendChild(p);
 
-    // Render any merged images
     if (item.meta?.mergedImages) {
       const imagesContainer = document.createElement("div");
       imagesContainer.className = "attachments-grid";
@@ -651,7 +604,6 @@ function renderItem(item) {
       contentDiv.appendChild(imagesContainer);
     }
 
-    // In the renderItem function, update the sources rendering section:
     if (item.meta?.sourceUrls && item.meta.sourceUrls.length > 0) {
       const sourcesDiv = document.createElement("div");
       sourcesDiv.className = "merged-sources";
@@ -662,7 +614,6 @@ function renderItem(item) {
         const li = document.createElement("li");
         const a = document.createElement("a");
 
-        // Handle both string URLs (old format) and object URLs (new format)
         if (typeof source === "object" && source.url) {
           a.href = source.url;
           a.target = "_blank";
@@ -672,7 +623,6 @@ function renderItem(item) {
           a.target = "_blank";
           a.textContent = new URL(source).hostname;
         } else {
-          // Skip invalid entries
           return;
         }
 
@@ -680,7 +630,6 @@ function renderItem(item) {
         sourcesList.appendChild(li);
       });
 
-      // Only add the sources section if we have valid URLs
       if (sourcesList.children.length > 0) {
         sourcesDiv.appendChild(sourcesList);
         contentDiv.appendChild(sourcesDiv);
@@ -692,14 +641,16 @@ function renderItem(item) {
     const p = document.createElement("p");
     p.className = "item-text";
     p.textContent = item.text;
+    p.addEventListener("click", () => {
+      showFullContent(item);
+    });
+
     body.appendChild(p);
 
-    // Add source URL if available (for single items, not merged)
     if (item.meta?.sourceUrl) {
       const sourceDiv = document.createElement("div");
       sourceDiv.className = "source-indicator";
 
-      // Handle both string and object formats for sourceUrl
       let sourceUrl = item.meta.sourceUrl;
       let sourceTitle = new URL(sourceUrl).hostname;
 
@@ -717,12 +668,10 @@ function renderItem(item) {
   }
 
   if (item.type === "image") {
-    // Image preview container
     const imgContainer = document.createElement("div");
     imgContainer.className = "image-container";
 
     if (item.meta?.imageData) {
-      // Clickable thumbnail (if image data is available)
       const img = document.createElement("img");
       img.src = item.meta.imageData;
       img.className = "image-thumbnail";
@@ -731,7 +680,6 @@ function renderItem(item) {
       );
       imgContainer.appendChild(img);
     } else {
-      // Show placeholder if no image data
       const placeholder = document.createElement("div");
       placeholder.className = "image-placeholder";
       placeholder.innerHTML = "🖼️ Image (stored locally)";
@@ -745,7 +693,6 @@ function renderItem(item) {
       imgContainer.appendChild(placeholder);
     }
 
-    // Optional caption
     const caption = document.createElement("p");
     caption.className = "image-caption";
     caption.textContent = item.text || "Screenshot";
@@ -754,7 +701,6 @@ function renderItem(item) {
     body.appendChild(imgContainer);
   }
 
-  // tags
   const tagWrap = document.createElement("div");
   tagWrap.className = "item-tags";
   (item.tags || []).forEach((t) => {
@@ -789,21 +735,20 @@ function actionBtn(symbol, title, cb) {
 /* load & filters */
 function loadMemory() {
   getMemory((list) => {
-    // sort: pinned first then date desc
     list.sort(
       (a, b) => b.pinned - a.pinned || new Date(b.created) - new Date(a.created)
     );
-    // filter by search
+
     const q = searchInput.value.trim().toLowerCase();
     let filtered = list.filter((i) => {
       const inText = i.text.toLowerCase().includes(q);
       const inTags = (i.tags || []).some((t) => t.toLowerCase().includes(q));
       return q ? inText || inTags : true;
     });
-    // filter by activeTag
+
     if (activeTag)
       filtered = filtered.filter((i) => (i.tags || []).includes(activeTag));
-    // render
+
     renderTagBar(list);
     renderList(filtered);
   });
@@ -820,10 +765,8 @@ addBtn.addEventListener("click", () => {
         .map((t) => t.trim())
         .filter(Boolean)
     : [];
-  const auto = autoTagForText(text);
-  const tags = Array.from(
-    new Set([...(userTags.length ? userTags : ["untitled"]), ...auto])
-  );
+  const tags = userTags.length ? userTags : ["Z-NTA"];
+
   const detected = detectType(text);
   const item = {
     id: uid(),
@@ -831,7 +774,7 @@ addBtn.addEventListener("click", () => {
     created: new Date().toISOString(),
     color: randomColor(),
     pinned: pinOnAdd.checked,
-    tags,
+    tags, // Only user tags now
     type: detected.type,
     meta: detected.meta || {},
     versions: [],
@@ -845,23 +788,20 @@ addBtn.addEventListener("click", () => {
     });
   });
 });
-
 let undoQueue = [];
 let isShowingUndo = false;
 
 /* delete single with queued undo */
 function deleteItem(id) {
   getMemory((list) => {
-    const itemToDelete = list.find(i => i.id === id);
+    const itemToDelete = list.find((i) => i.id === id);
     const updatedList = list.filter((i) => i.id !== id);
-    
+
     setMemory(updatedList, () => {
       loadMemory();
-      
-      // Add to queue instead of showing immediately
+
       undoQueue.push({ item: itemToDelete, id: id });
-      
-      // Show next undo bar if not already showing one
+
       if (!isShowingUndo) {
         showNextUndoBar();
       }
@@ -872,60 +812,56 @@ function deleteItem(id) {
 /* show next undo bar from queue */
 function showNextUndoBar() {
   if (undoQueue.length === 0 || isShowingUndo) return;
-  
+
   isShowingUndo = true;
   const { item, id } = undoQueue.shift();
-  
-  const undoBar = document.createElement('div');
-  undoBar.className = 'undo-bar';
+
+  const undoBar = document.createElement("div");
+  undoBar.className = "undo-bar";
   undoBar.dataset.id = id;
-  
-  // Show item title instead of "Item deleted"
-  const itemTitle = item.text.length > 30 ? item.text.substring(0, 30) + '...' : item.text;
-  
+
+  const itemTitle =
+    item.text.length > 30 ? item.text.substring(0, 30) + "..." : item.text;
+
   undoBar.innerHTML = `
     <span>Deleted: "${itemTitle}"</span>
     <button class="undo-btn">Undo</button>
     <button class="close-btn">×</button>
     <div class="border-timer"></div>
   `;
-  
-  const borderTimer = undoBar.querySelector('.border-timer');
-  
-  // Start border animation (7 seconds)
+
+  const borderTimer = undoBar.querySelector(".border-timer");
+
   setTimeout(() => {
-    borderTimer.style.transition = 'width 5s linear';
-    borderTimer.style.width = '100%';
+    borderTimer.style.transition = "width 5s linear";
+    borderTimer.style.width = "100%";
   }, 10);
-  
-  // Undo button click
-  undoBar.querySelector('.undo-btn').addEventListener('click', () => {
+
+  undoBar.querySelector(".undo-btn").addEventListener("click", () => {
     getMemory((list) => {
       setMemory([item, ...list], () => {
         loadMemory();
         undoBar.remove();
         isShowingUndo = false;
-        showNextUndoBar(); // Show next in queue
+        showNextUndoBar();
       });
     });
   });
-  
-  // Close button click
-  undoBar.querySelector('.close-btn').addEventListener('click', () => {
+
+  undoBar.querySelector(".close-btn").addEventListener("click", () => {
     undoBar.remove();
     isShowingUndo = false;
-    showNextUndoBar(); // Show next in queue
+    showNextUndoBar();
   });
-  
-  // Auto-remove after 7 seconds
+
   setTimeout(() => {
     if (undoBar.parentNode) {
       undoBar.remove();
       isShowingUndo = false;
-      showNextUndoBar(); // Show next in queue
+      showNextUndoBar();
     }
   }, 5000);
-  
+
   document.body.appendChild(undoBar);
 }
 
@@ -933,27 +869,24 @@ function showNextUndoBar() {
 function clearAllWithUndo() {
   getMemory((list) => {
     if (list.length === 0) return;
-    
-    // Store all items for potential undo
+
     const allItems = [...list];
-    
+
     setMemory([], () => {
       loadMemory();
-      
-      // Add bulk undo to queue
-      undoQueue.push({ 
-        items: allItems, 
+
+      undoQueue.push({
+        items: allItems,
         isBulk: true,
-        count: allItems.length 
+        count: allItems.length,
       });
-      
+
       if (!isShowingUndo) {
         showNextUndoBar();
       }
     });
   });
 }
-
 
 /* toggle pin */
 function togglePin(id) {
@@ -987,7 +920,7 @@ function startEdit(id) {
       li.querySelector("div");
 
     const editor = document.createElement("div");
-    editor.setAttribute("data-edit", "true"); // Add this line
+    editor.setAttribute("data-edit", "true");
 
     const ta = document.createElement("textarea");
     ta.value = item.text;
@@ -995,7 +928,7 @@ function startEdit(id) {
     ta.rows = 4;
 
     const tagIn = document.createElement("input");
-    tagIn.type = "text"; // Add this line
+    tagIn.type = "text";
     tagIn.value = (item.tags || []).join(", ");
 
     const save = document.createElement("button");
@@ -1006,7 +939,6 @@ function startEdit(id) {
     cancel.className = "action-btn";
     cancel.innerText = "Cancel";
 
-    // Add actions container
     const actions = document.createElement("div");
     actions.className = "edit-actions";
     actions.append(save, cancel);
@@ -1033,7 +965,7 @@ function finishEdit(id, newTextVal, tagsVal) {
         return {
           ...i,
           text: newTextVal,
-          tags: newTags.length ? newTags : ["untitled"],
+          tags: newTags.length ? newTags : ["Z-NTA"],
           versions,
         };
       }
@@ -1086,21 +1018,16 @@ mergeBtn.addEventListener("click", () => {
       .map((id) => list.find((i) => i.id === id))
       .filter(Boolean);
 
-    // Extract all text content
     let mergedText = "";
     let allImages = [];
-    let allSourceUrls = []; // Changed from Set to Array to preserve duplicates
+    let allSourceUrls = [];
 
     items.forEach((item) => {
-      // Handle already merged items
       if (item.type === "mixed" && item.meta?.mergedImages) {
-        // Add text from previous merge
         mergedText += item.text + "\n--\n";
 
-        // Add images from previous merge
         allImages = [...allImages, ...item.meta.mergedImages];
 
-        // Add source URLs from previous merge - handle both formats
         if (item.meta.sourceUrls) {
           item.meta.sourceUrls.forEach((source) => {
             if (typeof source === "object" && source.url) {
@@ -1113,9 +1040,7 @@ mergeBtn.addEventListener("click", () => {
             }
           });
         }
-      }
-      // Handle individual image items
-      else if (item.type === "image") {
+      } else if (item.type === "image") {
         const imageRef = `[Image: ${item.text || "Screenshot"}]`;
         mergedText += imageRef + "\n";
 
@@ -1131,9 +1056,7 @@ mergeBtn.addEventListener("click", () => {
             title: item.text || "Screenshot",
           });
         }
-      }
-      // Handle regular text items
-      else {
+      } else {
         mergedText += item.text + "\n";
         if (item.meta?.sourceUrl) {
           allSourceUrls.push({
@@ -1152,20 +1075,19 @@ mergeBtn.addEventListener("click", () => {
       text: mergedText.trim(),
       created: new Date().toISOString(),
       color: randomColor(),
-      pinned: items.some((i) => i.pinned), // Keep pinned if any source was pinned
-      tags: mergedTags.length ? mergedTags : ["untitled"],
+      pinned: items.some((i) => i.pinned),
+      tags: mergedTags.length ? mergedTags : ["Z-NTA"],
       type: hasImages ? "mixed" : "text",
       meta: {
         ...(hasImages && {
           mergedImages: allImages,
-          // Store all source URLs at the end
+
           sourceUrls: allSourceUrls.filter(Boolean),
         }),
         versions: [],
       },
     };
 
-    // If no images, still preserve source URLs
     if (!hasImages && allSourceUrls.length > 0) {
       merged.meta.sourceUrls = allSourceUrls.filter(Boolean);
     }
@@ -1214,23 +1136,22 @@ importFile.addEventListener("change", (e) => {
 /* replace the existing clearAllBtn event listener */
 /* replace the existing clearAllBtn event listener */
 clearAllBtn.addEventListener("click", () => {
-  // Show gentle confirmation instead of alert
-  if (clearAllBtn.classList.contains('confirm-mode')) {
+  if (clearAllBtn.classList.contains("confirm-mode")) {
     clearAllWithUndo();
-    clearAllBtn.classList.remove('confirm-mode');
-    clearAllBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
-    clearAllBtn.style.background = '';
+    clearAllBtn.classList.remove("confirm-mode");
+    clearAllBtn.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+    clearAllBtn.style.background = "";
   } else {
-    // First click - show confirmation
-    clearAllBtn.classList.add('confirm-mode');
-    clearAllBtn.innerHTML = '❓ Clear All?';
-    clearAllBtn.style.background = '#ff6b6b';
-    
-    // Reset after 3 seconds
+    clearAllBtn.classList.add("confirm-mode");
+    clearAllBtn.innerHTML = "❓ Clear All?";
+    clearAllBtn.style.background = "#ff6b6b";
+
     setTimeout(() => {
-      clearAllBtn.classList.remove('confirm-mode');
-      clearAllBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
-      clearAllBtn.style.background = '';
+      clearAllBtn.classList.remove("confirm-mode");
+      clearAllBtn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+      clearAllBtn.style.background = "";
     }, 3000);
   }
 });
@@ -1241,13 +1162,9 @@ searchInput.addEventListener("input", () => loadMemory());
 /* view toggle */
 viewToggle.addEventListener("click", () => {
   listView = !listView;
-  if (listView) {
-    listContainer.classList.remove("grid-view");
-    listContainer.classList.add("list-view");
-  } else {
-    listContainer.classList.remove("list-view");
-    listContainer.classList.add("grid-view");
-  }
+  settings.listView = listView;
+  saveSettingsToStorage();
+  updateLayoutView();
 });
 
 /* group toggle */
@@ -1285,7 +1202,6 @@ function showFullscreenImage(imageSrc) {
 
   document.body.appendChild(viewer);
 
-  // Close with Escape key
   document.addEventListener("keydown", function closeOnEscape(e) {
     if (e.key === "Escape") {
       viewer.remove();
@@ -1294,7 +1210,6 @@ function showFullscreenImage(imageSrc) {
   });
 }
 
-// GitHub settings modal handlers
 githubSettingsBtn.addEventListener("click", () => {
   githubOwner.value = githubConfig.owner;
   githubRepo.value = githubConfig.repo;
@@ -1320,13 +1235,12 @@ saveGithubSettings.addEventListener("click", () => {
   });
 });
 
-// Add manual sync button to small-controls section
 const syncBtn = document.createElement("button");
 syncBtn.title = "Sync with GitHub";
 syncBtn.innerHTML =
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-sync-icon lucide-folder-sync"><path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v4h4"/><path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5"/><path d="M22 22v-4h-4"/><path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5"/></svg>';
 syncBtn.id = "syncBtn";
-// Replace your sync button event handler:
+
 syncBtn.addEventListener("click", async () => {
   try {
     updateSyncStatus("syncing");
@@ -1348,10 +1262,8 @@ syncBtn.addEventListener("click", async () => {
   }
 });
 
-// Add to small-controls
 document.querySelector(".small-controls").appendChild(syncBtn);
 
-// Add this after your GitHub modal handlers
 testGithubConnection.addEventListener("click", async () => {
   const testConfig = {
     owner: githubOwner.value,
@@ -1360,7 +1272,6 @@ testGithubConnection.addEventListener("click", async () => {
     token: githubToken.value,
   };
 
-  // Temporarily set the config for testing
   const originalConfig = { ...githubConfig };
   githubConfig = testConfig;
 
@@ -1373,10 +1284,59 @@ testGithubConnection.addEventListener("click", async () => {
     alert(`❌ Connection failed: ${error.message}`);
     updateSyncStatus("error");
   } finally {
-    // Restore original config
     githubConfig = originalConfig;
   }
 });
 
+// function toggleContentExpansion(element, button, item) {
+//   const isExpanded = element.classList.contains("expanded");
 
+//   if (isExpanded) {
+//     element.classList.remove("expanded");
+//     button.textContent = "Show more";
+//   } else {
+//     element.classList.add("expanded");
+//     button.textContent = "Show less";
 
+//     element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+//   }
+// }
+
+function showFullContent(item) {
+  const viewer = document.createElement("div");
+  viewer.id = "content-viewer";
+
+  viewer.innerHTML = `
+    <div class="content-container">
+      <button class="close-btn">×</button>
+      <div class="content-meta">
+        <strong>${formatDate(item.created)}</strong> | 
+        Tags: ${(item.tags || []).join(", ")}
+      </div>
+      <div class="content-body">${
+        item.type === "code"
+          ? "<pre><code>" +
+            window.SimpleHighlighter.highlight(item.text) +
+            "</code></pre>"
+          : item.text
+      }</div>
+    </div>
+  `;
+
+  viewer.querySelector(".close-btn").addEventListener("click", () => {
+    viewer.remove();
+  });
+
+  viewer.addEventListener("click", (e) => {
+    if (e.target === viewer) viewer.remove();
+  });
+
+  document.addEventListener("keydown", function closeOnEscape(e) {
+    if (e.key === "Escape") {
+      viewer.remove();
+      document.removeEventListener("keydown", closeOnEscape);
+    }
+  });
+
+  document.body.appendChild(viewer);
+}

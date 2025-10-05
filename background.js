@@ -7,21 +7,11 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
   });
 
-  // Add tag submenu (unchanged)
-  const tags = ["Info", "Reference", "Content", "Series", "Code", "URL"];
-  tags.forEach((tag) => {
-    chrome.contextMenus.create({
-      id: `saveWithTag_${tag}`,
-      title: tag,
-      parentId: "saveToMemory",
-      contexts: ["selection"],
-    });
-  });
 
   // NEW: Add screenshot context menu
   chrome.contextMenus.create({
     id: "captureVisibleTab",
-    title: "📸 Capture Visible Tab",
+    title: "Capture Visible Tab",
     contexts: ["all"], // Available on any page
     documentUrlPatterns: ["http://*/*", "https://*/*"], // Only on web pages
   });
@@ -30,8 +20,7 @@ chrome.runtime.onInstalled.addListener(() => {
 // Updated click handler
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   // Text save handler
-  if (info.menuItemId.startsWith("saveWithTag_") && info.selectionText) {
-    const tag = info.menuItemId.replace("saveWithTag_", "");
+   if (info.menuItemId === "saveToMemory" && info.selectionText) {
     const detected = detectType(info.selectionText);
 
     const newItem = {
@@ -40,7 +29,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       created: new Date().toISOString(),
       color: randomColor(),
       pinned: false,
-      tags: [tag],
+      tags: ["Z-NTA"], // Default tag only
       type: detected.type,
       meta: {
         ...(detected.meta || {}),
