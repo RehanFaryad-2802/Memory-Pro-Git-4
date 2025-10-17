@@ -28,7 +28,6 @@ body {
 
 .container {
   height: 100vh;
-  overflow: hidden;
   padding: 12px;
 }
 
@@ -198,7 +197,6 @@ button#addBtn {
 
 .list-container {
   max-height: 500px;
-  overflow: auto;
   background: transparent;
   padding-right: 6px;
 }
@@ -206,7 +204,7 @@ button#addBtn {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0;
+  padding-bottom: 30px;
   margin: 0;
   list-style: none;
 }
